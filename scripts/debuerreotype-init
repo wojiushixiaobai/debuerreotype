@@ -178,6 +178,25 @@ fi
 	fi
 ' -- "$include"
 
+# https://github.com/Loongson-Cloud-Community/dockerfiles/issues/25
+"$thisDir/debuerreotype-chroot" "$targetDir" bash -c '
+	if [ -n "$1" ]; then
+		IFS=","; excludePackages=( $1 ); unset IFS
+		apt-get autoremove -y --purge --allow-remove-essential "${excludePackages[@]}"
+	fi
+	for user in systemd-timesync systemd-network systemd-resolve; do
+		if id $user >/dev/null; then
+			userdel --force --remove $user
+		fi
+	done
+	for group in systemd-journal; do
+		if getent group $group >/dev/null; then
+			groupdel $group
+		fi
+	done
+' -- "$exclude"
+
+
 echo 'debuerreotype' > "$targetDir/etc/hostname"
 {
 	echo '# https://1.1.1.1 (privacy-focused, highly-available DNS service)'
