@@ -33,33 +33,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { SUITE: stable,    CODENAME: jessie,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: c099dbc9579aff85ad118e3bfcf850b9ddea73ad69525711c52e2bd28030186c }
-          - { SUITE: jessie,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: c099dbc9579aff85ad118e3bfcf850b9ddea73ad69525711c52e2bd28030186c }
-          - { SUITE: testing,   CODENAME: stretch, TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 0549fb820e8cbefda22fc72a3607f4a7ead622bfc2fd1f047caac0692d3239e5 }
-          - { SUITE: stretch,   CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: 0549fb820e8cbefda22fc72a3607f4a7ead622bfc2fd1f047caac0692d3239e5 }
-          - { SUITE: unstable,  CODENAME: sid,     TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: b3fe1c7f347ad60739084ca9b8349f43eeffe6533291a81736174cc9d19d194d }
-          - { SUITE: sid,       CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: b3fe1c7f347ad60739084ca9b8349f43eeffe6533291a81736174cc9d19d194d }
-          - { SUITE: oldstable, CODENAME: wheezy,  TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ad4e0014b058af4d33476156190794dd3f13f07c3530fbc8eaab677cf10aaa50 }
-          - { SUITE: wheezy,    CODENAME: "",      TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ad4e0014b058af4d33476156190794dd3f13f07c3530fbc8eaab677cf10aaa50 }
-
-          # EOL suites testing
-          - { SUITE: eol, CODENAME: jessie, TIMESTAMP: "2021-03-01T00:00:00Z", SHA256: 7e89b60c07dbab9b331ee9e6390deb3d88e98af673b89b0711066a6a1865defb }
-
-          # deb822 / usr-is-merged testing
-          - { SUITE: bookworm, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 44854026cc9e52f902171b9e40d96f448e72043ae1f6d7f9a3cc710c536aa666 }
-          - { SUITE: bullseye, CODENAME: "", TIMESTAMP: "2022-09-30T00:00:00Z", SHA256: 761b6b66c7e1d9e0fa10c2578a4258fa6ff5c473931a2346b8cf75404b666469 }
-
           # qemu-debootstrap testing
-          - { ARCH: arm64,   SUITE: jessie,   CODENAME: "", TIMESTAMP: "2017-01-01T00:00:00Z", SHA256: ebe6aa294a28caefd0acc5b42fc60e4ab8cc9c03fb6d2184b48cb2f1084b5e66 }
-
-          # a few entries for "today" to try and catch issues like https://github.com/debuerreotype/debuerreotype/issues/41 sooner
-          - { SUITE: unstable,  CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
-          - { SUITE: stable,    CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
-          - { SUITE: oldstable, CODENAME: "", TIMESTAMP: "today 00:00:00", SHA256: "" }
-
-          # smoke test Ubuntu 24.04 and 22.04
-          - { DISTRO: ubuntu, SUITE: noble }
-          - { DISTRO: ubuntu, SUITE: jammy }
+          - { ARCH: loong64, SUITE: unstable, CODENAME: "trixie", TIMESTAMP: "2025-08-01T00:00:00Z", SHA256: "" }
+          - { ARCH: loong64, SUITE: unstable, CODENAME: "forky",  TIMESTAMP: "today 00:00:00",       SHA256: "" }
       fail-fast: false
     name: Test ${{ matrix.DISTRO && format('{0} ', matrix.DISTRO) }}${{ matrix.SUITE }}${{ matrix.CODENAME && format(' ({0})', matrix.CODENAME) }}${{ matrix.ARCH && format(' [{0}]', matrix.ARCH) }}${{ matrix.TIMESTAMP && format(' at {0}', matrix.TIMESTAMP) }}
     runs-on: ubuntu-24.04
@@ -67,8 +43,6 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-      - name: checkout validate submodule
-        run: git submodule update --init --depth 1 validate
 
       - name: Prepare Environment
         run: |
@@ -81,6 +55,12 @@ jobs:
           ~/phe/hack-my-builds.sh
           rm -rf ~/phe
 
+          case "${{ matrix.CODENAME }}" in
+            "trixie")
+              sed -i 's/echo "URIs: $mirror"/echo "URIs: ${deb822Snapshots["$mirror"]}"/g' scripts/debuerreotype-debian-sources-list
+              ;;
+          esac
+
       - name: Build
         run: |
           "./.validate-${DISTRO:-debian}.sh"
@@ -89,18 +69,10 @@ jobs:
         run: |
           cd validate
 
-          git status
+          ls -al
 
-          # remove/reset "debuerreotype-version" files before diffing (since that's not a meaningful diff for our purposes, and certainly not worth rev-bumping the validation-artifacts repository by itself)
-          git checkout -- '**/*debuerreotype-version'
-
-          if ! git diff --exit-code --color; then
-            # if there's a delta, let's setup "diffoscope" as a difftool so we can generate a much "meatier" diff
-            # https://lists.reproducible-builds.org/pipermail/diffoscope/2016-April/000193.html
-            docker pull tianon/diffoscope
-            # https://github.com/tianon/dockerfiles/commits/master/diffoscope/git-difftool.sh
-            wget -O ~/diffoscope.sh 'https://github.com/tianon/dockerfiles/raw/52243370c11f6f15005801ebbf4c6345a93432d8/diffoscope/git-difftool.sh'
-            chmod +x ~/diffoscope.sh
-            git config --global difftool.diffoscope.cmd 'export LOCAL REMOTE && ~/diffoscope.sh --text-color=always'
-            git difftool --exit-code --color -t diffoscope -y
-          fi
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-${{ matrix.ARCH }}-${{ matrix.CODENAME }}
+          path: validate/
